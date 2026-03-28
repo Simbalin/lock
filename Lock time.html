@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>专属锁 🔒</title>
+<style>
+body {
+  background:black;
+  color:white;
+  text-align:center;
+  font-family:Arial;
+}
+input {
+  font-size:22px;
+  text-align:center;
+  margin:5px;
+}
+button {
+  font-size:18px;
+  padding:8px 12px;
+  margin:5px;
+}
+#timer {
+  font-size:28px;
+  color:#ff4d4f;
+  margin:20px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="setup">
+  <h2>设置锁</h2>
+  <input type="password" id="setPwd" maxlength="4" placeholder="4位密码"><br>
+  <input type="number" id="initTime" placeholder="初始时间(分钟)"><br>
+  <button onclick="generateCode()">生成锁代码</button>
+  <p id="code"></p>
+
+  <hr>
+
+  <input id="loadInput" placeholder="粘贴锁代码">
+  <button onclick="loadCode()">加载锁</button>
+</div>
+
+<div id="main" style="display:none;">
+  <div id="timer"></div>
+  <input id="inputPwd" maxlength="4" placeholder="输入密码"><br>
+  <button onclick="submit()">尝试解锁</button>
+  <p id="msg"></p>
+</div>
+
+<script>
+async function hash(t){
+  const d = new TextEncoder().encode(t);
+  const h = await crypto.subtle.digest("SHA-256", d);
+  return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+// 👩 生成锁代码
+async function generateCode(){
+  let pwd = setPwd.value;
+  let min = parseInt(initTime.value);
+
+  if(pwd.length !== 4 || isNaN(min)){
+    alert("输入不合法");
+    return;
+  }
+
+  let data = {
+    hash: await hash(pwd),
+    lockUntil: Date.now() + min * 60000
+  };
+
+  code.innerText = "LOCK-" + btoa(JSON.stringify(data));
+}
+
+// 👨 加载锁
+function loadCode(){
+  let c = loadInput.value;
+
+  if(!c.startsWith("LOCK-")){
+    alert("无效代码");
+    return;
+  }
+
+  let d = JSON.parse(atob(c.replace("LOCK-","")));
+
+  localStorage.setItem("data", JSON.stringify(d));
+  localStorage.setItem("fail", 0);
+  localStorage.setItem("freeze", 0);
+
+  start();
+}
+
+// 进入锁界面
+function start(){
+  setup.style.display = "none";
+  main.style.display = "block";
+}
+
+// 🔥 核心逻辑（随时可试版本）
+async function submit(){
+  let data = JSON.parse(localStorage.getItem("data"));
+  let now = Date.now();
+  let freeze = parseInt(localStorage.getItem("freeze") || 0);
+  let fail = parseInt(localStorage.getItem("fail") || 0);
+
+  // ⛔ 冷却锁（15分钟）
+  if(now < freeze){
+    msg.innerText = "锁定中，不能尝试 ⛔";
+    return;
+  }
+
+  let input = inputPwd.value;
+  let h = await hash(input);
+
+  // ✅ 正确 → 直接解锁
+  if(h === data.hash){
+    msg.innerText = "解锁成功 🎉";
+    localStorage.clear();
+    return;
+  }
+
+  // ❌ 错误逻辑
+  fail++;
+  data.lockUntil += 30 * 60000;
+
+  if(fail >= 3){
+    localStorage.setItem("freeze", now + 15 * 60000);
+    fail = 0;
+    msg.innerText = "连续错误，锁定15分钟 ⛔";
+  } else {
+    msg.innerText = `错误(${fail}/3) +30分钟 😈`;
+  }
+
+  localStorage.setItem("fail", fail);
+  localStorage.setItem("data", JSON.stringify(data));
+}
+
+// ⏳ 倒计时
+setInterval(()=>{
+  let data = JSON.parse(localStorage.getItem("data") || "null");
+  if(!data) return;
+
+  let now = Date.now();
+  let freeze = parseInt(localStorage.getItem("freeze") || 0);
+
+  if(now < freeze){
+    let t = freeze - now;
+    timer.innerText = `锁定中 ${Math.floor(t/60000)}分`;
+    return;
+  }
+
+  let r = data.lockUntil - now;
+
+  if(r > 0){
+    timer.innerText = `剩余 ${Math.floor(r/60000)}分`;
+  } else {
+    timer.innerText = "可以尝试解锁";
+  }
+}, 1000);
+
+// 自动恢复
+if(localStorage.getItem("data")){
+  start();
+}
+</script>
+
+</body>
+</html>
